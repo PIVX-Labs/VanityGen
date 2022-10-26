@@ -42,7 +42,6 @@ fn main() {
 
         // VanityGen Case Insensitivity: can be set to reduce the generation time via wider Base58 scope
         if arg == "--case-insensitive" {
-            target = target.to_lowercase();
             case_insensitive = true;
         }
 
@@ -63,6 +62,11 @@ fn main() {
         }
         // Notify we're running multi-threaded
         println!("Running at {} threads", threads);
+
+        // Enforce and cache our target's capitalisation
+        if case_insensitive {
+            target = target.to_lowercase();
+        }
 
         // Spin up our key-gen threads
         let (tx, rx) = mpsc::channel();
