@@ -35,7 +35,7 @@ fn main() {
         }
 
         // VanityGen Threads: only needed if a target prefix is selected
-        if arg.starts_with("--threads=") && target.len() > 1 {
+        if arg.starts_with("--threads=") {
             // User-set count OR system available_paralellism
             threads = arg[10..].parse().unwrap_or(0);
         }
