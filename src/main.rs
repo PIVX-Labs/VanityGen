@@ -17,6 +17,11 @@ pub struct OptimisedKeypair {
     public: String
 }
 
+pub struct VanityResult {
+    keypair: OptimisedKeypair,
+    iterations: u64
+}
+
 fn main() {
     // Settings and their defaults
     let mut threads = 0;
@@ -72,35 +77,46 @@ fn main() {
         let (tx, rx) = mpsc::channel();
         for _ in 0..threads {
             let ctx = tx.clone();
+            let ctarget = target.clone();
             thread::spawn(move|| {
-                let secp = Secp256k1::new();
-                loop {
-                    ctx.send(create_pivx_address(&secp)).unwrap();
-                }
+                ctx.send(vanitygen_blocking(ctarget, case_insensitive)).unwrap();
             });
         }
 
         // Start our key search
         let search_start = time::Instant::now();
-        let mut iterations: u64 = 0;
         loop {
-            let received = rx.recv().unwrap();
-
-            // Apply case sensitivity rules
-            let address = match case_insensitive {
-                true => received.public.to_lowercase(),
-                false => received.public.clone()
-            };
+            let result = rx.recv().unwrap();
 
             // Check if the prefix matches the target
-            if address[..target.len()] == target {
-                let elapsed_time = search_start.elapsed();
-                println!("Found in {}s, avg speed of {} keys per-sec", elapsed_time.as_secs_f32(), (iterations as f32 / elapsed_time.as_secs_f32()));
-                dump_keypair(received);
-                exit(0);
-            }
-            iterations += 1;
+            let elapsed_time = search_start.elapsed();
+            println!("Found in {}s, avg speed of {} keys per-sec", elapsed_time.as_secs_f32(), ((result.iterations as f32 * threads as f32) / elapsed_time.as_secs_f32()));
+            dump_keypair(result.keypair);
+            exit(0);
         }
+    }
+}
+
+pub fn vanitygen_blocking(target: String, case_insensitive: bool) -> VanityResult {
+    // Precompute a Secp256k1 context
+    let secp = Secp256k1::new();
+    let mut iterations: u64 = 0;
+
+    loop {
+        // Generate a keypair
+        let keypair = create_pivx_address(&secp);
+
+        // Apply case sensitivity rules
+        let address = match case_insensitive {
+            true => keypair.public.to_lowercase(),
+            false => keypair.public.clone()
+        };
+
+        // Check if the prefix matches the target
+        if address[..target.len()] == target {
+            return VanityResult{keypair, iterations}
+        }
+        iterations += 1;
     }
 }
 
