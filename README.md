@@ -10,7 +10,7 @@ Powerful PIVX VanityGen written in Rust.
 --threads=<int> # example: --threads=6
     
 # Case Insensitivity: use this flag to disable case sensitivity for faster searches
---case-insensitivity
+--case-insensitive
 ```
 
 A full example may look like:
