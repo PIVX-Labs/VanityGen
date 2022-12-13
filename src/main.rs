@@ -3,14 +3,14 @@ use std::{
     sync::mpsc,
     thread,
     thread::available_parallelism,
-    time,
-    env
+    time
 };
 
 use secp256k1::{Secp256k1, PublicKey, rand, SecretKey};
 use ripemd::{Ripemd160, Digest};
 use base58::ToBase58;
 use bitcoin_hashes::{sha256d, sha256, Hash};
+use clap::{Parser, command, arg};
 
 pub struct OptimisedKeypair {
     private: SecretKey,
@@ -21,36 +21,30 @@ pub struct VanityResult {
     keypair: OptimisedKeypair,
     iterations: u64
 }
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+   /// VanityGen Target: the desired prefix to use for the address
+   #[arg(long, default_value_t = String::default())]
+   target: String,
+
+   /// Number of threads to be used default is 1
+   #[arg(long, default_value_t = 1)]
+   threads: usize,
+    /// VanityGen Case Insensitivity: can be set to reduce the generation time via wider Base58 scope
+   #[arg(long, default_value_t = false)]
+   case_insensitive: bool,
+}
 
 fn main() {
+
+    let cli = Args::parse();
     // Settings and their defaults
-    let mut threads = 0;
+    let mut threads = cli.threads;
 
-    let mut target = String::from("D");
+    let mut target = cli.target;
 
-    let mut case_insensitive = false;
-
-    // Init: Parse arguments and adjust settings accordingly
-    for arg in env::args() {
-
-        // VanityGen Target: the desired prefix to use for the address
-        if arg.starts_with("--target=") {
-            // User-set target prefix
-            target = arg[9..].to_string();
-        }
-
-        // VanityGen Threads: only needed if a target prefix is selected
-        if arg.starts_with("--threads=") {
-            // User-set count OR system available_paralellism
-            threads = arg[10..].parse().unwrap_or(0);
-        }
-
-        // VanityGen Case Insensitivity: can be set to reduce the generation time via wider Base58 scope
-        if arg == "--case-insensitive" {
-            case_insensitive = true;
-        }
-
-    }
+    let case_insensitive = cli.case_insensitive;
 
     if target.len() == 1 {
         // Generate a single keypair and immediately return + exit
