@@ -29,7 +29,7 @@ struct Args {
    target: String,
 
    /// Number of threads to be used default is 1
-   #[arg(long, default_value_t = 1)]
+   #[arg(long, default_value_t = 0)]
    threads: usize,
     /// VanityGen Case Insensitivity: can be set to reduce the generation time via wider Base58 scope
    #[arg(long, default_value_t = false)]
