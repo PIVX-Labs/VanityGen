@@ -20,15 +20,11 @@ jobs:
       - uses: actions/checkout@master
         with:
           submodules: true
-      - name: Init and Update submodule pivx-rpc-rs
-        run: git submodule update --init --recursive
-      - name: Check repo
-        run: ls -R
-        
       - name: Compile and release
         uses: rust-build/rust-build.action@v1.4.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TOOLCHAIN_VERSION: "1.77.0"
         with:
           RUSTTARGET: ${{ matrix.target }}
           ARCHIVE_TYPES: ${{ matrix.archive }}
