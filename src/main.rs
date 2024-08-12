@@ -121,7 +121,7 @@ fn main() {
 
                 // Attempt filling the code's address
                 loop {
-                    match rpc.sendtoaddress(&promo.public, promo_value, Some("PIVX Promos pre-fill"), None, None) {
+                    match rpc.sendtoaddress(&promo.public, promo_value, Some("PIVX Promos pre-fill"), Some(""), Some(false)) {
                         Ok(tx_id) => {
                             println!("Code {i} - TX: {}", tx_id);
                             break;
