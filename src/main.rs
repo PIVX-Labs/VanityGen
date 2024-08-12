@@ -3,8 +3,12 @@ use std::{
     sync::mpsc,
     thread,
     thread::available_parallelism,
-    time
+    time,
+    fs,
+    env::home_dir
 };
+
+use pivx_rpc_rs::{self, BitcoinRpcClient};
 
 use secp256k1::{Secp256k1, PublicKey, rand, rand::Rng, SecretKey};
 use ripemd::{Ripemd160, Digest};
@@ -74,6 +78,10 @@ struct Args {
    /// PIVX Promos Prefix: the desired prefix to use for the Promo code(s)
    #[arg(long, default_value_t = String::from("PIVX Labs"))]
    promo_prefix: String,
+
+   /// PIVX Promos Value: the desired pre-fill value of Promo codes (requires RPC)
+   #[arg(long, default_value_t = 0.0)]
+   promo_value: f64,
 }
 
 fn main() {
@@ -85,15 +93,46 @@ fn main() {
     let case_insensitive = cli.case_insensitive;
 
     // PIVX Promos Settings
-    let promo_count = cli.promo_count;
+    let promo_count = cli.promo_count + 1;
     let promo_prefix = cli.promo_prefix;
+    let promo_value = cli.promo_value;
+
+    // Quietly parse the local PIVX config
+    let pivx_config = parse_pivx_conf();
+
+    // Setup the RPC
+    let rpc = BitcoinRpcClient::new(
+        String::from("http://localhost:") + &pivx_config.rpc_port.to_string(),
+        Some(pivx_config.rpc_user.to_owned()),
+        Some(pivx_config.rpc_pass.to_owned()),
+        4,
+        10,
+        1000
+    );
 
     if promo_count > 0 {
         let mut i: u64 = 0;
-        while i < promo_count {
+        while i + 1 < promo_count {
             let promo = create_promo_key(&promo_prefix);
             let wif = secret_to_wif(promo.private);
-            println!("- Promo: '{}' - Address: {} - WIF: {wif}", promo.code, promo.public);
+            println!("Code {i} - Promo: '{}' - Address: {} - WIF: {wif}", promo.code, promo.public);
+            if (promo_value > 0.0) {
+                println!("Code {i} - Filling with {} PIV...", promo_value);
+
+                // Attempt filling the code's address
+                loop {
+                    match rpc.sendtoaddress(&promo.public, promo_value, Some("PIVX Promos pre-fill"), None, None) {
+                        Ok(tx_id) => {
+                            println!("Code {i} - TX: {}", tx_id);
+                            break;
+                        },
+                        Err(e) => {
+                            eprintln!("Code {i} - TX failed with error: \"{}\". Retrying in 10 seconds...", e);
+                            std::thread::sleep(std::time::Duration::from_secs(10));
+                        }
+                    }
+                }
+            }
             i += 1;
         }
         exit(0);
@@ -361,4 +400,45 @@ pub fn create_promo_key(prefix: &String) -> OptimisedPromoKeypair {
     let public = pubkey_to_address(PublicKey::from_secret_key(&secp, &private));
 
     OptimisedPromoKeypair { private, public, code: promo_code }
+}
+
+pub struct RpcConfig {
+    pub rpc_user: String,
+    pub rpc_pass: String,
+    pub rpc_port: u16,
+}
+
+pub fn parse_pivx_conf() -> RpcConfig {
+    let mut conf_dir = home_dir().unwrap_or_default();
+    if cfg!(target_os = "windows") {
+        conf_dir.push("AppData\\Roaming\\PIVX");
+    } else if cfg!(target_os = "macos") {
+        conf_dir.push("Library/Application Support/PIVX/");
+    } else {
+        conf_dir.push(".pivx");
+    }
+    let conf_file = conf_dir.join("pivx.conf");
+
+    let mut defaults = RpcConfig {
+        rpc_user: String::from("user"),
+        rpc_pass: String::from("pass"),
+        rpc_port: 51473,
+    };
+
+    let contents = match fs::read_to_string(conf_file) {
+        Ok(c) => c,
+        Err(_) => return defaults,
+    };
+
+    for line in contents.lines() {
+        let parts: Vec<_> = line.splitn(2, '=').collect();
+        match parts[..] {
+            ["rpcuser", user] => defaults.rpc_user = user.to_owned(),
+            ["rpcpassword", pass] => defaults.rpc_pass = pass.to_owned(),
+            ["rpcport", port] => defaults.rpc_port = port.parse().unwrap_or(defaults.rpc_port),
+            _ => {}
+        }
+    }
+
+    defaults
 }
