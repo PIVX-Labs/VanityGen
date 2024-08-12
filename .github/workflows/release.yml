@@ -18,6 +18,11 @@ jobs:
             archive: zip
     steps:
       - uses: actions/checkout@master
+        with:
+          submodules: true
+      - name: Init and Update submodule pivx-rpc-rs
+        run: git submodule update --init --recursive pivx-rpc-rs
+        
       - name: Compile and release
         uses: rust-build/rust-build.action@v1.4.0
         env:
