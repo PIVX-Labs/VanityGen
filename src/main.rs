@@ -56,6 +56,11 @@ pub const PROMO_TARGETS: [u64; 1] = [
     12_500_000,
 ];
 
+/// The network fee paid for the redeemer client
+/// 
+/// This can be changed, but is recommended to be universal cross-client for improved UX
+pub const PROMO_FEE: f64 = 0.00010000;
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -121,7 +126,7 @@ fn main() {
 
                 // Attempt filling the code's address
                 loop {
-                    match rpc.sendtoaddress(&promo.public, promo_value, Some("PIVX Promos pre-fill"), Some(""), Some(false)) {
+                    match rpc.sendtoaddress(&promo.public, promo_value + PROMO_FEE, Some("PIVX Promos pre-fill"), Some(""), Some(false)) {
                         Ok(tx_id) => {
                             println!("Code {i} - TX: {}", tx_id);
                             break;
