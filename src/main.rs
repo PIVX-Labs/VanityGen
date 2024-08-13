@@ -117,7 +117,7 @@ fn main() {
         1000
     );
 
-    if promo_count > 0 {
+    if promo_count > 1 {
         let mut i: u64 = 0;
         let mut codes: Vec<OptimisedPromoKeypair> = Vec::new();
         while i + 1 < promo_count {
