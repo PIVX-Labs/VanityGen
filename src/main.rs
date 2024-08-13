@@ -5,6 +5,7 @@ use std::{
     thread::available_parallelism,
     time,
     fs,
+    io::prelude::*,
     env::home_dir
 };
 
@@ -28,12 +29,13 @@ pub struct OptimisedKeypair {
 /// A struct representing an optimized promotional keypair.
 ///
 /// This struct contains a private key of type `SecretKey`, a public key represented as a string,
-/// and a promotional code represented as a string.
+/// a promotional code represented as a string, and the value, if applicable.
 ///
 pub struct OptimisedPromoKeypair {
     private: SecretKey,
     public: String,
-    code: String
+    code: String,
+    value: f64,
 }
 
 /// A struct representing the result of a vanity address generation.
@@ -81,7 +83,7 @@ struct Args {
    promo_count: u64,
 
    /// PIVX Promos Prefix: the desired prefix to use for the Promo code(s)
-   #[arg(long, default_value_t = String::from("PIVX Labs"))]
+   #[arg(long, default_value_t = String::from("promo"))]
    promo_prefix: String,
 
    /// PIVX Promos Value: the desired pre-fill value of Promo codes (requires RPC)
@@ -117,11 +119,13 @@ fn main() {
 
     if promo_count > 0 {
         let mut i: u64 = 0;
+        let mut codes: Vec<OptimisedPromoKeypair> = Vec::new();
         while i + 1 < promo_count {
             let promo = create_promo_key(&promo_prefix);
             let wif = secret_to_wif(promo.private);
             println!("Code {i} - Promo: '{}' - Address: {} - WIF: {wif}", promo.code, promo.public);
-            if (promo_value > 0.0) {
+
+            if promo_value > 0.0 {
                 println!("Code {i} - Filling with {} PIV...", promo_value);
 
                 // Attempt filling the code's address
@@ -138,8 +142,46 @@ fn main() {
                     }
                 }
             }
+
+            // Push this code to our save cache
+            codes.push(promo);
             i += 1;
         }
+
+        // Now we generated all the codes, ask if they want to save to a file
+        println!("All {} codes generated! - Would you like to save as a CSV file? (Y/n)", codes.len());
+        let mut question = String::new();
+        let stdin = std::io::stdin();
+        stdin.read_line(&mut question).unwrap_or_default();
+
+        // Snip off whitespace and check the answer
+        question = question.trim().to_string();
+        if question == "" || question.eq_ignore_ascii_case("y") {
+            // Figure out a default filename
+            let mut default_filename = String::from("promos");
+            if !promo_prefix.is_empty() {
+                default_filename = promo_prefix;
+            }
+
+            // Request a filename
+            println!("What would you like to call this batch? (default: {default_filename}.csv)");
+            let mut filename = String::from("");
+            let stdin = std::io::stdin();
+            stdin.read_line(&mut filename).unwrap_or_default();
+            filename = filename.trim().replace(".csv", "").to_string();
+            if filename.is_empty() {
+                // If they don't choose a name: we use the prefix, or fallback to "promos"
+                filename = default_filename;
+            }
+
+            // Create the file and convert codes to CSV
+            let mut file = fs::File::create(filename.clone() + ".csv").unwrap();
+            file.write_all(compile_to_csv(codes).as_bytes()).unwrap();
+            println!("Saved batch as \"{filename}.csv\"!");
+        }
+
+        // Finally, quit and cool down that CPU!
+        println!("Quitting...");
         exit(0);
     }
 
@@ -404,7 +446,7 @@ pub fn create_promo_key(prefix: &String) -> OptimisedPromoKeypair {
     let private = SecretKey::from_slice(&promo_key).unwrap();
     let public = pubkey_to_address(PublicKey::from_secret_key(&secp, &private));
 
-    OptimisedPromoKeypair { private, public, code: promo_code }
+    OptimisedPromoKeypair { private, public, code: promo_code, value: 0.0 }
 }
 
 pub struct RpcConfig {
@@ -446,4 +488,13 @@ pub fn parse_pivx_conf() -> RpcConfig {
     }
 
     defaults
+}
+
+pub fn compile_to_csv(promos: Vec<OptimisedPromoKeypair>) -> String {
+    let mut csv = String::from("coin,value,code,\n");
+
+    for promo in promos {
+        csv.push_str(&format!("{},{},{}\n", "pivx", promo.value, promo.code));
+    }
+    csv
 }
