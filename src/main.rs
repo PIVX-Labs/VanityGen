@@ -1,12 +1,5 @@
 use std::{
-    process::exit,
-    sync::mpsc,
-    thread,
-    thread::available_parallelism,
-    time,
-    fs,
-    io::prelude::*,
-    env::home_dir
+    env::home_dir, fs, io::{self, prelude::*}, process::exit, sync::mpsc, thread::{self, available_parallelism}, time
 };
 
 use pivx_rpc_rs::{self, BitcoinRpcClient};
@@ -36,6 +29,17 @@ pub struct OptimisedPromoKeypair {
     public: String,
     code: String,
     value: f64,
+}
+
+/// A struct representing a promo batch request.
+///
+/// This struct contains the Value and the Quantity of the batch it represents.
+///
+pub struct PromoBatch {
+    /// The value of the batch
+    value: f64,
+    /// The quantity of the batch
+    qty: u64,
 }
 
 /// A struct representing the result of a vanity address generation.
@@ -78,17 +82,9 @@ struct Args {
    #[arg(long, default_value_t = false)]
    case_insensitive: bool,
 
-   /// PIVX Promos Count: the desired quantity of Promo codes
-   #[arg(long, default_value_t = 0)]
-   promo_count: u64,
-
-   /// PIVX Promos Prefix: the desired prefix to use for the Promo code(s)
-   #[arg(long, default_value_t = String::from("promo"))]
-   promo_prefix: String,
-
-   /// PIVX Promos Value: the desired pre-fill value of Promo codes (requires RPC)
-   #[arg(long, default_value_t = 0.0)]
-   promo_value: f64,
+   /// PIVX Promos Interactive Mode: a mode that allows more fine-tuned, interactive generation with stdin user input
+   #[arg(long, default_value_t = false)]
+   promos: bool,
 }
 
 fn main() {
@@ -100,9 +96,7 @@ fn main() {
     let case_insensitive = cli.case_insensitive;
 
     // PIVX Promos Settings
-    let promo_count = cli.promo_count + 1;
-    let promo_prefix = cli.promo_prefix;
-    let promo_value = cli.promo_value;
+    let mut promo_prefix = String::from("promos");
 
     // Quietly parse the local PIVX config
     let pivx_config = parse_pivx_conf();
@@ -117,71 +111,103 @@ fn main() {
         1000
     );
 
-    if promo_count > 1 {
-        let mut i: u64 = 0;
+    let should_save: bool;
+    let mut filename = promo_prefix.clone();
+    let mut batches: Vec<PromoBatch> = Vec::new();
+
+    // If Promo Interactive mode is on: let's ask and figure out ALL the settings beforehand for a fine-tuned experience
+    if cli.promos {
+        should_save = ask_bool("Would you like to save your batch as a CSV file?", true);
+        if should_save {
+            filename = ask_string("What would you like to name it?", &filename)
+        }
+        println!("Perfect, now, let's start planning your batch!");
+        println!("----------------------------------------------");
+        loop {
+            let qty = ask_float(format!("Batch {}: how many codes do you want?", batches.len() + 1).as_str(), 5.0) as u64;
+            let value = ask_float(format!("Batch {}: how much PIV should each of your {} codes be worth?", batches.len() + 1, qty).as_str(), 1.0);
+            batches.push(PromoBatch{ value, qty });
+
+            // Clear the screen and log the batches
+            clear_terminal_screen();
+            println!("----------------------------------------------");
+            let mut count = 1;
+            let mut total_value = 0.0;
+            let mut total_codes: u64 = 0;
+            for batch in batches.as_slice() {
+                println!(" - Batch {}: {} codes of {} PIV", count, batch.qty, batch.value);
+                count += 1;
+                total_value += batch.value * batch.qty as f64;
+                total_codes += batch.qty;
+            }
+            println!("... for a total of {} codes worth {} PIV", total_codes, total_value);
+            println!("----------------------------------------------");
+
+            // Ask if they wanna add more batches, or they're ready to start generating
+            let continue_batching = ask_bool("Would you like to add another batch?", false);
+
+            // If it's a no... break the batch creation loop and move on
+            if !continue_batching {
+                break;
+            }
+        }
+
+        // Check if they want a prefix used
+        promo_prefix = ask_string(format!("What prefix would you like to use? For example: {}-{}", promo_prefix, get_alpha_numeric_rand(5)).as_str(), promo_prefix.as_str());
+
+        // Start generating!
+        println!("Time to begin! Please do NOT cancel or interfere with the generation process!");
+        println!("Generating...");
         let mut codes: Vec<OptimisedPromoKeypair> = Vec::new();
-        while i + 1 < promo_count {
-            let promo = create_promo_key(&promo_prefix);
-            let wif = secret_to_wif(promo.private);
-            println!("Code {i} - Promo: '{}' - Address: {} - WIF: {wif}", promo.code, promo.public);
 
-            if promo_value > 0.0 {
-                println!("Code {i} - Filling with {} PIV...", promo_value);
+        // We'll loop each batch and decrement it's quantity as each code is generated
+        let mut batch_count = 1;
+        for mut batch in batches {
+            let mut code_count = 1;
+            // Loop each code within the batch
+            while batch.qty > 1 {
+                let mut promo = create_promo_key(&promo_prefix);
+                let wif = secret_to_wif(promo.private);
+                println!("Code {code_count} of batch {batch_count}: Promo: '{}' - Address: {} - WIF: {wif}", promo.code, promo.public);
 
-                // Attempt filling the code's address
-                loop {
-                    match rpc.sendtoaddress(&promo.public, promo_value + PROMO_FEE, Some("PIVX Promos pre-fill"), Some(""), Some(false)) {
-                        Ok(tx_id) => {
-                            println!("Code {i} - TX: {}", tx_id);
-                            break;
-                        },
-                        Err(e) => {
-                            eprintln!("Code {i} - TX failed with error: \"{}\". Retrying in 10 seconds...", e);
-                            std::thread::sleep(std::time::Duration::from_secs(10));
+                // If these codes have value, fill 'em!
+                if batch.value > 0.0 {
+                    println!(" - Filling with {} PIV...", batch.value);
+
+                    // Attempt filling the code's address
+                    loop {
+                        match rpc.sendtoaddress(&promo.public, batch.value + PROMO_FEE, Some("PIVX Promos pre-fill"), Some(""), Some(false)) {
+                            Ok(tx_id) => {
+                                println!(" - TX: {}", tx_id);
+                                promo.value = batch.value;
+                                break;
+                            },
+                            Err(e) => {
+                                eprintln!(" - TX failed with error: \"{}\". Retrying in 10 seconds...", e);
+                                std::thread::sleep(std::time::Duration::from_secs(10));
+                            }
                         }
                     }
                 }
-            }
+                // Push this promo
+                codes.push(promo);
 
-            // Push this code to our save cache
-            codes.push(promo);
-            i += 1;
+                // Decrement batch quantity
+                batch.qty -= 1;
+                code_count += 1;
+            }
+            batch_count += 1;
         }
 
-        // Now we generated all the codes, ask if they want to save to a file
-        println!("All {} codes generated! - Would you like to save as a CSV file? (Y/n)", codes.len());
-        let mut question = String::new();
-        let stdin = std::io::stdin();
-        stdin.read_line(&mut question).unwrap_or_default();
-
-        // Snip off whitespace and check the answer
-        question = question.trim().to_string();
-        if question == "" || question.eq_ignore_ascii_case("y") {
-            // Figure out a default filename
-            let mut default_filename = String::from("promos");
-            if !promo_prefix.is_empty() {
-                default_filename = promo_prefix;
-            }
-
-            // Request a filename
-            println!("What would you like to call this batch? (default: {default_filename}.csv)");
-            let mut filename = String::from("");
-            let stdin = std::io::stdin();
-            stdin.read_line(&mut filename).unwrap_or_default();
-            filename = filename.trim().replace(".csv", "").to_string();
-            if filename.is_empty() {
-                // If they don't choose a name: we use the prefix, or fallback to "promos"
-                filename = default_filename;
-            }
-
+        // Now we generated all the codes, save and adios!
+        if should_save {
             // Create the file and convert codes to CSV
             let mut file = fs::File::create(filename.clone() + ".csv").unwrap();
             file.write_all(compile_to_csv(codes).as_bytes()).unwrap();
             println!("Saved batch as \"{filename}.csv\"!");
         }
 
-        // Finally, quit and cool down that CPU!
-        println!("Quitting...");
+        println!("Finished! - Quitting...");
         exit(0);
     }
 
@@ -269,6 +295,97 @@ pub fn vanitygen_blocking(target: String, case_insensitive: bool) -> VanityResul
         iterations += 1;
     }
 }
+
+pub fn ask_float(question: &str, default: f64) -> f64 {
+    println!("{question} (default: \"{default}\")");
+
+    // We run this in a loop; incase the user enters a weird non-number; we'll catch it, tell them to stop being stupid, and ask again
+    let mut float_answer = default;
+    loop {
+        print!("{default}: ");
+        io::stdout().flush().unwrap_or_default();
+
+        // Wait for input
+        let mut answer = String::new();
+        let stdin = std::io::stdin();
+        stdin.read_line(&mut answer).unwrap_or_default();
+        answer = answer.trim().to_string();
+
+        // If it's empty: use the default
+        if answer.is_empty() {
+            break;
+        }
+
+        // Attempt to parse the float
+        float_answer = match answer.parse() {
+            Ok(number) => number,
+            Err(_) => 0.0
+        };
+
+        // If it's a good answer, we break the loop
+        if float_answer >= 0.0 {
+            break;
+        } else {
+            eprintln!("Weird answer... try again!");
+        }
+    }
+
+    // Add some natural spacing
+    println!("");
+
+    // Return our glorious float
+    float_answer
+}
+
+pub fn ask_string(question: &str, default: &str) -> String {
+    println!("{question} (default: \"{default}\")");
+    print!("{default}: ");
+    io::stdout().flush().unwrap_or_default();
+
+    // Wait for input
+    let mut answer = String::new();
+    let stdin = std::io::stdin();
+    stdin.read_line(&mut answer).unwrap_or_default();
+
+    // Add some natural spacing
+    println!("");
+
+    // Trim and return it
+    answer.trim().to_string()
+}
+
+pub fn ask_bool(question: &str, default: bool) -> bool {
+    let default_answer_string = match default {
+        true => "Y/n",
+        false => "y/N"
+    };
+    println!("{question}");
+    print!("{default_answer_string}: ");
+    io::stdout().flush().unwrap_or_default();
+
+    // Wait for input
+    let mut answer = String::new();
+    let stdin = std::io::stdin();
+    stdin.read_line(&mut answer).unwrap_or_default();
+    // Trim and lowercase it for simplicity
+    answer = answer.trim().to_string().to_ascii_lowercase();
+
+    // Add some natural spacing
+    println!("");
+
+    // Check if Yes/No - a non-matching answer will use default
+    match answer.as_str() {
+        "y" => true,
+        "n" => false,
+        _ => default
+    }
+}
+
+/// Clear (wipe) the terminal screen
+pub fn clear_terminal_screen() {
+    print!("{esc}c", esc = 27 as char);
+}
+
 
 /// Prints the PIVX address and corresponding private key of a given keypair.
 ///
