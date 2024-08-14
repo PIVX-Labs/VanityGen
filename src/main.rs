@@ -165,7 +165,7 @@ fn main() {
         for mut batch in batches {
             let mut code_count = 1;
             // Loop each code within the batch
-            while batch.qty > 1 {
+            while batch.qty >= 1 {
                 let mut promo = create_promo_key(&promo_prefix);
                 let wif = secret_to_wif(promo.private);
                 println!("Code {code_count} of batch {batch_count}: Promo: '{}' - Address: {} - WIF: {wif}", promo.code, promo.public);
