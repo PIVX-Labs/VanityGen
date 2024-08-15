@@ -22,17 +22,43 @@ A full example may look like:
 
 As well as having VanityGen: this binary supports PIVX Promos!
 
-To create a PIVX Promos code, simply specify the quantity of codes to create, and VanityGen will shift to generating Promo Codes, ignoring VanitGen commands.
+VanityGen supports an alternative "promos" mode in which the tool guides you through a step-by-step PIVX Promos batching process - whether it's a single code, or 10,000 codes, the process is the same.
 
 ```bash
-# Choose the quantity of codes to create: if not specified, VanityGen is used
---promo-count=<int> # example: --promo-count=6
-
-# Choose a prefix for your PIVX Promo code: defaults to "PIVX Labs"
---promo-prefix="<string>" # example: --promo-prefix="I love PIVX!"
+# Startup in to Promos mode
+--promos
 ```
 
-A full example may look like:
+After which, the tool will ask you a series of questions to construct your batch of PIVX Promo codes, for example:
 ```
-./pivx-vanity --promo-count=1 --promo-prefix="JSKitty is awesome"
+% ./pivx-vanity --promos
+Would you like to save your batch as a CSV file?
+Y/n: Y
+
+What would you like to name it? (default: "promos")
+promos: test
+
+Perfect, now, let's start planning your batch!
+----------------------------------------------
+Batch 1: how many codes do you want? (default: "5")
+5: 5
+
+Batch 1: how much PIV should each of your 5 codes be worth? (default: "1")
+1: 25
+
+----------------------------------------------
+ - Batch 1: 5 codes of 25 PIV
+... for a total of 5 codes worth 125 PIV
+----------------------------------------------
+Would you like to add another batch?
+y/N: N
+
+What prefix would you like to use? For example: promos-QDmes (default: "promos")
+promos: jskitty
+
+Time to begin! Please do NOT cancel or interfere with the generation process!
+Generating...
+Code 1 of batch 1: Promo: 'jskitty-o3QAi' - Address: D6RYFELVRb3gcLUqoVMioMyJfjJ1X4e6ww - WIF: YUAZnZPKGQGWeiMfrxQNjSiUqexAVyiddcaeUZNdncaX4brVj21g
+ - Filling with 25 PIV...
+ - TX: ...
 ```
