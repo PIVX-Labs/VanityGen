@@ -487,10 +487,10 @@ pub fn create_pivx_address(secp: &Secp256k1<secp256k1::All>) -> OptimisedKeypair
     OptimisedKeypair{private: privkey, public: address}
 }
 
-/// A string representing the set of characters for generating alphanumeric random values.
+/// A string representing the base58 charset for generating alphanumeric random values.
 /// 
 const MAP_ALPHANUMERIC: &str =
-    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ123456789";
 
 /// Returns a vector of random bytes of the specified size.
 ///
